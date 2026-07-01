@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser Agent</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- ─── Header ──────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4M12 8h.01"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Browser Agent</h1>
+        <p id="statusLine" class="status-line">Ready</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="newChat" class="icon-btn" type="button" title="New conversation">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+      <button id="settingsToggle" class="icon-btn" type="button" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── Settings Panel ──────────────────────────────────────────── -->
+  <section id="settings" class="settings hidden">
+    <div class="settings-group">
+      <span class="settings-group-label">AI Provider</span>
+      <label>
+        Provider
+        <select id="provider">
+          <optgroup label="Free — No API key needed">
+            <option value="pollinations">Pollinations AI (free, no key)</option>
+          </optgroup>
+          <optgroup label="Free — Needs API key">
+            <option value="gemini">Google Gemini (free tier)</option>
+          </optgroup>
+          <optgroup label="Local Models">
+            <option value="ollama">Ollama</option>
+            <option value="lmstudio">LM Studio</option>
+          </optgroup>
+          <optgroup label="Paid APIs">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="custom">Custom OpenAI-compatible</option>
+          </optgroup>
+        </select>
+      </label>
+      <label>
+        Model
+        <input id="model" type="text" placeholder="auto">
+      </label>
+      <label id="endpointRow" class="hidden">
+        Endpoint URL
+        <input id="endpoint" type="url" placeholder="http://localhost:11434/api/chat">
+      </label>
+      <label id="apiKeyRow" class="hidden">
+        API Key
+        <input id="apiKey" type="password" placeholder="sk-...">
+      </label>
+    </div>
+
+    <div class="settings-group">
+      <span class="settings-group-label">Behavior</span>
+      <label>
+        Action permission
+        <select id="permissionMode">
+          <option value="ask">Always ask before acting</option>
+          <option value="auto-low">Auto-run low-risk actions</option>
+          <option value="auto-all">Auto-run all actions (dangerous!)</option>
+        </select>
+      </label>
+      <label>
+        Max auto steps
+        <select id="maxSteps">
+          <option value="5">5 steps</option>
+          <option value="10" selected>10 steps</option>
+          <option value="20">20 steps</option>
+          <option value="50">50 steps</option>
+        </select>
+      </label>
+    </div>
+
+    <button id="saveSettings" class="btn-secondary" type="button">Save Settings</button>
+  </section>
+
+  <!-- ─── Page Info Card ──────────────────────────────────────────── -->
+  <section class="page-card">
+    <div class="page-info">
+      <strong id="pageTitle">No page loaded</strong>
+      <span id="pageUrl"></span>
+    </div>
+    <button id="refreshPage" class="btn-icon-sm" type="button" title="Read page">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+    </button>
+  </section>
+
+  <!-- ─── Chat Messages ───────────────────────────────────────────── -->
+  <main id="messages" class="messages" aria-live="polite"></main>
+
+  <!-- ─── Action Approval Panel ───────────────────────────────────── -->
+  <section id="approval" class="approval hidden">
+    <div class="approval-header">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 9v4M12 17h.01"/>
+        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <span>Approve Actions</span>
+    </div>
+    <div id="approvalActions" class="approval-list"></div>
+    <div class="approval-buttons">
+      <button id="approveBtn" type="button" class="btn-approve">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Run
+      </button>
+      <button id="declineBtn" type="button" class="btn-secondary">Decline</button>
+    </div>
+  </section>
+
+  <!-- ─── Chat Composer ───────────────────────────────────────────── -->
+  <form id="composer" class="composer">
+    <div class="composer-input-wrap">
+      <textarea id="prompt" rows="2" placeholder="Tell me what to do on this page..."></textarea>
+    </div>
+    <div class="composer-actions">
+      <button id="send" type="submit" class="btn-send">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+      <button id="stop" class="btn-stop" type="button" title="Stop agent">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="4" y="4" width="16" height="16" rx="2"/>
+        </svg>
+      </button>
+    </div>
+  </form>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

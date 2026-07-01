@@ -1,0 +1,18 @@
+{
+  "name": "browser-agent-extension",
+  "version": "1.0.0",
+  "description": "AI side-panel browser agent extension",
+  "main": "index.js",
+  "scripts": {
+    "validate": "node --check chrome-extension/background.js && node --check chrome-extension/content.js && node --check chrome-extension/sidepanel.js && node -e \"JSON.parse(require('fs').readFileSync('chrome-extension/manifest.json','utf8')); console.log('manifest ok')\"",
+    "test:extension": "npm run validate",
+    "test": "npm run validate"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "puppeteer-core": "^25.1.0"
+  }
+}

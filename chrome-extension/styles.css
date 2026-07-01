@@ -1,0 +1,154 @@
+/* ─── Browser Agent — Content Script Styles ──────────────────────────────
+   Injected into every page. Keeps styling minimal and scoped to avoid
+   interfering with page styles.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* ─── Element Highlight ─────────────────────────────────────────────────── */
+/* Shown when the agent clicks/types/interacts with an element */
+
+.browser-agent-highlight {
+  outline: 3px solid #f97316 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.18) !important;
+  transition: outline 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+/* ─── Acting Overlay ────────────────────────────────────────────────────── */
+/* Subtle indicator that the agent is performing actions on the page */
+
+.browser-agent-acting::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 2147483647;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #f97316 30%,
+    #fb923c 50%,
+    #f97316 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: agentProgress 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes agentProgress {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Animated AI Cursor ─────────────────────────────────────────────────── */
+/* Claude-style pointer cursor that glides to elements during agent actions */
+
+#browser-agent-cursor {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  will-change: left, top;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  /* Prevent cursor from affecting layout */
+  margin: 0;
+  padding: 0;
+}
+
+#browser-agent-cursor.visible {
+  opacity: 1;
+}
+
+#browser-agent-cursor.fading {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+#browser-agent-cursor svg {
+  display: block;
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+}
+
+/* Click ripple ring */
+.agent-cursor-ring {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(249, 115, 22, 0.25);
+  border: 2px solid rgba(249, 115, 22, 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: width 0.3s ease-out, height 0.3s ease-out, opacity 0.4s ease-out;
+}
+
+.agent-cursor-ring.clicking {
+  width: 48px;
+  height: 48px;
+  opacity: 1;
+  animation: cursorRipple 0.5s ease-out forwards;
+}
+
+@keyframes cursorRipple {
+  0% {
+    width: 0;
+    height: 0;
+    opacity: 0.8;
+  }
+  50% {
+    width: 48px;
+    height: 48px;
+    opacity: 0.5;
+  }
+  100% {
+    width: 64px;
+    height: 64px;
+    opacity: 0;
+  }
+}
+
+/* Typing pulse */
+#browser-agent-cursor.typing svg path {
+  animation: cursorTypePulse 0.15s ease-in-out 4 alternate;
+}
+
+@keyframes cursorTypePulse {
+  from { transform: translateY(0); }
+  to { transform: translateY(-2px); }
+}
+
+/* Action label tooltip */
+.agent-cursor-label {
+  position: absolute;
+  top: -8px;
+  left: 32px;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(15, 15, 23, 0.92);
+  color: #f97316;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(249, 115, 22, 0.2);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-cursor-label.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
