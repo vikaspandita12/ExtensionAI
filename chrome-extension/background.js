@@ -164,7 +164,71 @@ function parseApiError(prefix, status, responseText) {
     const parsed = JSON.parse(responseText);
     detail = parsed.error?.message || parsed.message || responseText;
   } catch {}
-  return `${prefix} (${status}): ${String(detail).slice(0, 300)}`;
+  return `${prefix} (${status}): ${sanitizeAgentText(detail, 300)}`;
+}
+
+// Free models that currently work on OpenRouter (updated July 2026)
+const OPENROUTER_FREE_MODELS = [
+  'meta-llama/llama-3.3-8b-instruct:free',
+  'qwen/qwen-2.5-7b-instruct:free',
+  'mistralai/mistral-7b-instruct:free',
+  'google/gemma-2-9b-it:free'
+];
+
+function normalizeOpenRouterModel(model) {
+  const raw = String(model || '').trim();
+  if (!raw) return OPENROUTER_FREE_MODELS[0];
+
+  // Already in correct format: "provider/model-name" or "provider/model:variant"
+  if (raw.includes('/')) return raw;
+
+  // Strip display-format prefixes like "OpenAI: ", "Meta: ", "Google: " etc.
+  let cleaned = raw.replace(/^[A-Za-z]+\s*[:.]\s*/i, '').trim();
+  if (!cleaned) return OPENROUTER_FREE_MODELS[0];
+
+  // Common aliases → proper OpenRouter model IDs
+  const aliases = {
+    'gpt-oss-120b': 'openai/gpt-oss-120b',
+    'gpt-oss-20b': 'openai/gpt-oss-20b',
+    'gpt-4o-mini': 'openai/gpt-4o-mini',
+    'gpt-4o': 'openai/gpt-4o',
+    'gpt-4.1-mini': 'openai/gpt-4.1-mini',
+    'gpt-4.1-nano': 'openai/gpt-4.1-nano',
+    'claude-3-5-sonnet': 'anthropic/claude-3.5-sonnet',
+    'claude-3.5-sonnet': 'anthropic/claude-3.5-sonnet',
+    'claude-sonnet-4': 'anthropic/claude-sonnet-4',
+    'llama-3.1-8b': 'meta-llama/llama-3.1-8b-instruct:free',
+    'llama-3.3-8b': 'meta-llama/llama-3.3-8b-instruct:free',
+    'gemma-2-9b': 'google/gemma-2-9b-it:free',
+    'mistral-7b': 'mistralai/mistral-7b-instruct:free',
+    'qwen-2.5-7b': 'qwen/qwen-2.5-7b-instruct:free'
+  };
+
+  const key = cleaned.toLowerCase();
+  if (aliases[key]) return aliases[key];
+
+  // If the cleaned string still doesn't have a slash, try prepending common providers
+  // based on name patterns
+  if (!cleaned.includes('/')) {
+    if (/^gpt/i.test(cleaned)) return `openai/${cleaned}`;
+    if (/^claude/i.test(cleaned)) return `anthropic/${cleaned}`;
+    if (/^llama/i.test(cleaned)) return `meta-llama/${cleaned}`;
+    if (/^gemma/i.test(cleaned)) return `google/${cleaned}`;
+    if (/^mistral/i.test(cleaned)) return `mistralai/${cleaned}`;
+    if (/^qwen/i.test(cleaned)) return `qwen/${cleaned}`;
+    // Unknown model without provider prefix — use as-is, let OpenRouter try it
+    return cleaned;
+  }
+
+  return cleaned;
+}
+
+function isOpenRouterModelError(error) {
+  const text = String(error?.message || '').toLowerCase();
+  return text.includes('no endpoints found') 
+    || text.includes('not a valid model') 
+    || text.includes('invalid model')
+    || text.includes('(404)');
 }
 
 // ─── Provider: Gemini (Free with API key from aistudio.google.com) ──────────
@@ -394,16 +458,40 @@ async function executeAgentQuery(request) {
 
       case 'openrouter':
         if (!apiKey) throw new Error('OpenRouter API key required.');
-        result = await queryOpenAICompatible(
-          'https://openrouter.ai/api/v1/chat/completions',
-          model || 'google/gemma-2-9b-it:free',
-          systemPrompt, userMessage,
-          {
-            Authorization: `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://browser-agent.extension',
-            'X-Title': 'Browser Agent'
+        try {
+          result = await queryOpenAICompatible(
+            'https://openrouter.ai/api/v1/chat/completions',
+            normalizeOpenRouterModel(model),
+            systemPrompt, userMessage,
+            {
+              Authorization: `Bearer ${apiKey}`,
+              'HTTP-Referer': 'https://browser-agent.extension',
+              'X-Title': 'Browser Agent'
+            }
+          );
+        } catch (error) {
+          if (!isOpenRouterModelError(error)) throw error;
+          // Try each free model in the fallback chain
+          let fallbackWorked = false;
+          for (const fallbackModel of OPENROUTER_FREE_MODELS) {
+            try {
+              result = await queryOpenAICompatible(
+                'https://openrouter.ai/api/v1/chat/completions',
+                fallbackModel,
+                systemPrompt, userMessage,
+                {
+                  Authorization: `Bearer ${apiKey}`,
+                  'HTTP-Referer': 'https://browser-agent.extension',
+                  'X-Title': 'Browser Agent'
+                }
+              );
+              result.warning = `Model "${sanitizeAgentText(model, 80)}" failed. Used ${fallbackModel} instead.`;
+              fallbackWorked = true;
+              break;
+            } catch { continue; }
           }
-        );
+          if (!fallbackWorked) throw error;
+        }
         break;
 
       case 'custom':
@@ -440,10 +528,10 @@ async function executeAgentQuery(request) {
       try {
         const fallback = await queryPollinations('openai', systemPrompt, userMessage);
         fallback.providerUsed = 'pollinations';
-        fallback.warning = `${provider} failed: ${error.message}. Used Pollinations as fallback.`;
+        fallback.warning = sanitizeAgentText(`${provider} failed: ${error.message}. Used Pollinations as fallback.`, 800);
         return fallback;
       } catch (fallbackError) {
-        throw new Error(`${provider} failed: ${error.message}. Fallback also failed: ${fallbackError.message}`);
+        throw new Error(sanitizeAgentText(`${provider} failed: ${error.message}. Fallback also failed: ${fallbackError.message}`, 1000));
       }
     }
     throw error;

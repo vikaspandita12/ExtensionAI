@@ -43,7 +43,7 @@ const DEFAULT_MODELS = {
   lmstudio: 'local-model',
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o-mini',
-  openrouter: 'google/gemma-2-9b-it:free',
+  openrouter: 'meta-llama/llama-3.3-8b-instruct:free',
   custom: ''
 };
 
