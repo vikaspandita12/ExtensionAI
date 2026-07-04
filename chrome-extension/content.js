@@ -146,12 +146,16 @@ function getInteractiveElements(limit = 200) {
     // Quiz/assessment option patterns
     '[onclick]',
     'label[for]',
+    // IndiaBix specific
+    '.bix-td-option', '[id^="tdOptionNo_"]', '[id^="lnkOptionLink_"]',
+    '[class*="option-svg-letter"]',
+    '.bix-opt-row',
+    // General quiz patterns  
     'span[id*="Option"]', 'span[id*="option"]',
-    'span[id*="Answer"]', 'span[id*="answer"]',
+    'div[id*="Option"]', 'div[id*="option"]',
     '[class*="option"]', '[class*="Option"]',
     '[class*="answer"]', '[class*="Answer"]',
     '[class*="choice"]', '[class*="Choice"]',
-    '.bix-td-option span', '.bix-opt-row',
     '[data-value]', '[data-answer]',
     'li[class*="opt"]', 'div[class*="opt"]'
   ].join(',');
@@ -159,16 +163,81 @@ function getInteractiveElements(limit = 200) {
   const seen = new Set();
   const elements = [];
 
+  // Helper: is this element a quiz option? (relaxed visibility check)
+  function isQuizOption(el) {
+    const id = el.id || '';
+    const cls = el.className || '';
+    return /tdOptionNo_|lnkOptionLink_|option-svg-letter/i.test(id + ' ' + cls)
+      || /bix-td-option/.test(cls);
+  }
+
+  // Helper: get option text from sibling value div (IndiaBix-specific)
+  function getOptionContext(el) {
+    // For bix-td-option or its children, get the text from the sibling bix-td-option-val
+    const optionRow = el.closest('.bix-opt-row') || el.closest('[class*="bix"]')?.parentElement;
+    if (optionRow) {
+      const valDiv = optionRow.querySelector('.bix-td-option-val');
+      if (valDiv) return getCleanText(valDiv, 200);
+    }
+    // For the option letter span, check parent's next sibling
+    const parent = el.closest('.bix-td-option');
+    if (parent?.nextElementSibling) {
+      return getCleanText(parent.nextElementSibling, 200);
+    }
+    return '';
+  }
+
   for (const el of document.querySelectorAll(selector)) {
     if (elements.length >= limit) break;
-    if (seen.has(el) || !isVisible(el)) continue;
+    if (seen.has(el)) continue;
+
+    // For quiz options, use relaxed visibility (they might be CSS-styled with no natural size)
+    const quizOpt = isQuizOption(el);
+    if (!quizOpt && !isVisible(el)) continue;
+    if (quizOpt) {
+      // At minimum check it's in the DOM and not display:none on a parent
+      const style = getComputedStyle(el);
+      if (style.display === 'none') continue;
+    }
+
     const rect = el.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) continue;
-    // Skip huge container elements (likely not individual options)
+    if (!quizOpt && (rect.width < 2 || rect.height < 2)) continue;
+    // Skip huge container elements
     if (rect.width > window.innerWidth * 0.9 && rect.height > 200) continue;
+
     seen.add(el);
-    elements.push(describeElement(el));
+
+    const desc = describeElement(el);
+    // Enrich quiz option descriptions with the option value text
+    if (quizOpt && !desc.text) {
+      desc.text = getOptionContext(el);
+      // Add option letter to label
+      const letter = (el.id || el.className || '').match(/[_-]([ABCD])(?:[_-]|$)/i);
+      if (letter) desc.label = `Option ${letter[1].toUpperCase()}: ${desc.text}`;
+    }
+    elements.push(desc);
   }
+
+  // Second pass: scan for quiz option elements by ID pattern that CSS selectors missed
+  if (elements.length < limit) {
+    const optionEls = document.querySelectorAll('[id^="tdOptionNo_"], [id^="lnkOptionLink_"]');
+    for (const el of optionEls) {
+      if (elements.length >= limit) break;
+      if (seen.has(el)) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none') continue;
+      seen.add(el);
+
+      const desc = describeElement(el);
+      if (!desc.text) {
+        desc.text = getOptionContext(el);
+        const letter = el.id.match(/[_-]([ABCD])[_-]/i);
+        if (letter) desc.label = `Option ${letter[1].toUpperCase()}: ${desc.text}`;
+      }
+      elements.push(desc);
+    }
+  }
+
   return elements;
 }
 

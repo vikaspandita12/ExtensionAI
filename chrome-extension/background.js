@@ -131,29 +131,67 @@ ${sanitizeAgentText(request.userText || '(no message)', 3000)}`;
 // ─── JSON Extraction ────────────────────────────────────────────────────────
 
 function extractJson(text) {
-  const trimmed = String(text || '').trim();
-  // Try fenced code block first
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidate = fenced?.[1] || trimmed;
-  const jsonMatch = candidate.match(/\{[\s\S]*\}/);
+  const raw = String(text || '').trim();
+  if (!raw) return { message: 'No response.', actions: [] };
 
-  if (!jsonMatch) {
-    return { message: sanitizeAgentText(trimmed || 'No response.', 4000), actions: [] };
-  }
+  // Strip markdown code fences
+  let cleaned = raw.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1');
 
+  // Try parsing the whole thing as valid JSON first
   try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    const actions = Array.isArray(parsed.actions) ? parsed.actions.map(action => ({
-      ...action,
-      reason: sanitizeAgentText(action.reason || '', 300)
-    })) : [];
-    return {
-      message: sanitizeAgentText(parsed.message || trimmed, 4000),
-      actions
-    };
-  } catch {
-    return { message: sanitizeAgentText(trimmed, 4000), actions: [] };
+    const parsed = JSON.parse(cleaned);
+    return normalizeAgentResponse(parsed, raw);
+  } catch {}
+
+  // Find ALL JSON objects in the text (models often output thinking + JSON + more thinking + JSON)
+  const jsonBlocks = [];
+  let depth = 0;
+  let start = -1;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    if (cleaned[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (cleaned[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const block = cleaned.slice(start, i + 1);
+        try {
+          const parsed = JSON.parse(block);
+          if (typeof parsed === 'object' && parsed !== null) {
+            jsonBlocks.push(parsed);
+          }
+        } catch {}
+        start = -1;
+      }
+    }
   }
+
+  if (jsonBlocks.length === 0) {
+    return { message: sanitizeAgentText(raw, 4000), actions: [] };
+  }
+
+  // Prefer the block that has both 'message' and 'actions' keys
+  const bestBlock = jsonBlocks.find(b => b.message && Array.isArray(b.actions))
+    || jsonBlocks.find(b => b.message || b.actions)
+    || jsonBlocks[jsonBlocks.length - 1]; // last block as fallback
+
+  return normalizeAgentResponse(bestBlock, raw);
+}
+
+function normalizeAgentResponse(parsed, rawFallback) {
+  const actions = Array.isArray(parsed.actions)
+    ? parsed.actions
+        .filter(a => a && a.type)
+        .map(action => ({
+          ...action,
+          reason: sanitizeAgentText(action.reason || '', 300)
+        }))
+    : [];
+  return {
+    message: sanitizeAgentText(parsed.message || rawFallback || 'Done.', 4000),
+    actions
+  };
 }
 
 // ─── API Error Helpers ──────────────────────────────────────────────────────
