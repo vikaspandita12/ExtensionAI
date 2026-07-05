@@ -295,6 +295,7 @@ async function readPageContext() {
   const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPageContext' });
   if (response?.error) throw new Error(response.error);
 
+  const ctx = response.pageContext || {};
   if (els.pageTitle) els.pageTitle.textContent = ctx.title || tab.title || 'Untitled';
   if (els.pageUrl) els.pageUrl.textContent = ctx.url || tab.url || '';
   return { tab, pageContext: ctx };
