@@ -594,6 +594,99 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // ── Quiz Answer Query ──
+  // Takes structured quiz questions and asks the AI ONLY for correct answers.
+  // Much simpler and more reliable than the full agentic loop.
+  if (request.action === 'quizQuery') {
+    const questions = request.questions || [];
+    if (!questions.length) {
+      sendResponse({ error: 'No questions provided.' });
+      return true;
+    }
+
+    const quizPrompt = `You are answering multiple-choice questions. For each question, reply with ONLY the correct answer letter.
+
+Respond with ONLY valid JSON in this exact format:
+{"answers":{"1":"A","2":"C","3":"B"}}
+
+Where the keys are question numbers and values are the correct option letters (A, B, C, D, or E).
+Do NOT include explanations, just the JSON.`;
+
+    const questionsText = questions.map(q => {
+      const optLines = Object.entries(q.options)
+        .map(([letter, text]) => `  ${letter}. ${text}`)
+        .join('\n');
+      return `Question ${q.num}: ${q.text}\n${optLines}`;
+    }).join('\n\n');
+
+    // Route through the same provider system
+    const provider = request.provider || 'pollinations';
+    const apiKey = request.apiKey || '';
+    const model = request.model || '';
+    const endpoint = request.endpoint || '';
+
+    (async () => {
+      try {
+        const systemPrompt = quizPrompt;
+        const userMessage = questionsText;
+        let result;
+
+        // Use the same provider routing but with the simple quiz prompt
+        switch (provider) {
+          case 'gemini':
+            if (!apiKey) throw new Error('Gemini API key required.');
+            result = await queryGemini(apiKey, model, systemPrompt, userMessage);
+            break;
+          case 'ollama':
+            result = await queryOllama(endpoint, model, systemPrompt, userMessage);
+            break;
+          case 'lmstudio':
+            result = await queryOpenAICompatible(
+              endpoint || 'http://localhost:1234/v1/chat/completions',
+              model || 'local-model', systemPrompt, userMessage
+            );
+            break;
+          case 'openai':
+            if (!apiKey) throw new Error('OpenAI API key required.');
+            result = await queryOpenAICompatible(
+              'https://api.openai.com/v1/chat/completions',
+              model || 'gpt-4o-mini', systemPrompt, userMessage,
+              { Authorization: `Bearer ${apiKey}` }
+            );
+            break;
+          case 'anthropic':
+            if (!apiKey) throw new Error('Anthropic API key required.');
+            result = await queryAnthropic(apiKey, model, systemPrompt, userMessage);
+            break;
+          case 'openrouter':
+            if (!apiKey) throw new Error('OpenRouter API key required.');
+            result = await queryOpenAICompatible(
+              'https://openrouter.ai/api/v1/chat/completions',
+              normalizeOpenRouterModel(model), systemPrompt, userMessage,
+              { Authorization: `Bearer ${apiKey}`, 'HTTP-Referer': 'https://browser-agent.extension', 'X-Title': 'Browser Agent' }
+            );
+            break;
+          default:
+            result = await queryPollinations(model, systemPrompt, userMessage);
+        }
+
+        // Extract answers from the result
+        const answers = result.answers || {};
+        sendResponse({ answers, providerUsed: provider });
+      } catch (error) {
+        // Try Pollinations as fallback
+        try {
+          const fallback = await queryPollinations('openai', quizPrompt, questionsText);
+          sendResponse({ answers: fallback.answers || {}, providerUsed: 'pollinations', warning: `${provider} failed, used Pollinations.` });
+        } catch (fbErr) {
+          sendResponse({ error: `Quiz query failed: ${error.message}` });
+        }
+      }
+    })();
+
+    return true;
+  }
+
   if (request.action === 'openSidePanel') {
     chrome.windows.getCurrent()
       .then(win => chrome.sidePanel.open({ windowId: win.id }))
@@ -604,3 +697,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   return false;
 });
+

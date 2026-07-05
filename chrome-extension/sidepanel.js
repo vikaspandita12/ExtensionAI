@@ -358,6 +358,116 @@ function escapeHtml(str) {
   return String(str || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// ─── Dedicated Quiz Solver ──────────────────────────────────────────────────
+// Bypasses the full agentic loop for quiz pages. Scans questions from the DOM,
+// asks the AI only for answer letters, and clicks them directly.
+
+async function tryQuizSolver(config) {
+  try {
+    // 1. Get the active tab and scan for quiz questions
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return false;
+
+    await ensureContentScript(tab.id);
+
+    setStatus('Scanning quiz...', 'thinking');
+    const thinkingEl = addThinking('Scanning page for quiz questions...');
+
+    const scanResponse = await chrome.tabs.sendMessage(tab.id, { action: 'scanQuiz' });
+
+    if (!scanResponse?.questions || scanResponse.questions.length === 0) {
+      thinkingEl.remove();
+      // No quiz found — fall through to normal agent loop
+      return false;
+    }
+
+    const questions = scanResponse.questions;
+    thinkingEl.querySelector('span').textContent =
+      `Found ${questions.length} question(s). Solving...`;
+
+    // 2. Ask the AI for answer letters
+    setStatus('Getting answers from AI...', 'thinking');
+
+    const quizResponse = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        action: 'quizQuery',
+        questions,
+        provider: config.provider,
+        apiKey: config.apiKey,
+        model: config.model,
+        endpoint: config.endpoint
+      }, response => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(response);
+        }
+      });
+    });
+
+    if (quizResponse.error) {
+      thinkingEl.remove();
+      addMessage('assistant', `❌ Quiz solver error: ${quizResponse.error}`);
+      return true; // We handled it (with an error)
+    }
+
+    const answers = quizResponse.answers || {};
+    const answerCount = Object.keys(answers).length;
+
+    if (answerCount === 0) {
+      thinkingEl.remove();
+      addMessage('assistant', `⚠️ AI couldn't determine the answers. Try a different model or provider.`);
+      return true;
+    }
+
+    if (quizResponse.warning) {
+      addMessage('assistant', `⚠️ ${quizResponse.warning}`);
+    }
+
+    // 3. Click the answers on the page
+    thinkingEl.querySelector('span').textContent =
+      `Got ${answerCount} answer(s). Clicking options...`;
+    setStatus('Marking answers...', 'acting');
+
+    const clickResponse = await chrome.tabs.sendMessage(tab.id, {
+      action: 'clickQuizAnswers',
+      answers
+    });
+
+    thinkingEl.remove();
+
+    // 4. Show results
+    if (clickResponse?.error) {
+      addMessage('assistant', `❌ Error clicking answers: ${clickResponse.error}`);
+      return true;
+    }
+
+    const results = clickResponse?.results || [];
+    const clicked = results.filter(r => r.ok);
+    const failed = results.filter(r => !r.ok);
+
+    let summary = `✅ Marked ${clicked.length}/${questions.length} answers:\n`;
+    clicked.forEach(r => {
+      summary += `  Q${r.question}: ${r.selected} — ${r.optionText || ''}\n`;
+    });
+    if (failed.length) {
+      summary += `\n⚠️ ${failed.length} failed:\n`;
+      failed.forEach(r => {
+        summary += `  Q${r.question}: ${r.error}\n`;
+      });
+    }
+
+    addMessage('assistant', summary.trim());
+    chatMessages.push({ role: 'assistant', content: summary.trim() });
+    storageSet('local', { agentHistory: chatMessages }).catch(() => {});
+    return true;
+
+  } catch (error) {
+    addMessage('assistant', `❌ Quiz solver error: ${error.message}`);
+    return true; // We handled it (with an error)
+  }
+}
+
 // ─── The Agentic Loop ───────────────────────────────────────────────────────
 // This is the core: observe → query AI → execute actions → repeat
 // Runs autonomously until: task done, max steps reached, user stops, or error.
@@ -377,6 +487,20 @@ async function runAgentLoop(userText) {
   setBusy(true);
 
   try {
+    // ── Quiz Detection ──
+    // If user asks to complete/answer/solve a quiz, try dedicated quiz solver first
+    const quizKeywords = /\b(complete|answer|solve|mark|auto.?answer|quiz|mcq|questions)\b/i;
+    if (quizKeywords.test(userText)) {
+      const quizResult = await tryQuizSolver(config);
+      if (quizResult) {
+        // Quiz solver handled it
+        setBusy(false);
+        setStatus('Ready', 'idle');
+        return;
+      }
+      // Fall through to normal agent loop if no quiz found
+    }
+
     let continueLoop = true;
     let feedbackText = userText;
 

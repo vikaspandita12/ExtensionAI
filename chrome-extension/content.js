@@ -593,6 +593,145 @@ async function executeAction(action) {
   }
 }
 
+// ─── Dedicated Quiz Solver ──────────────────────────────────────────────────
+// Extracts quiz questions directly from the DOM (IndiaBix and generic MCQ sites).
+// The AI only needs to tell us the correct letter — we handle the clicking.
+
+function scanQuizQuestions() {
+  const questions = [];
+
+  // ── IndiaBix format ──
+  // Questions: div.bix-div-container with qno + qtxt
+  // Options: div.bix-td-option with lnkOptionLink_X_NNN spans
+  document.querySelectorAll('.bix-div-container').forEach((container, idx) => {
+    const qnoEl = container.querySelector('.bix-td-qno, [id^="qno"]');
+    const qtxtEl = container.querySelector('.bix-td-qtxt');
+    if (!qtxtEl) return;
+
+    const qText = getCleanText(qtxtEl, 500);
+    if (!qText) return;
+
+    const qNum = qnoEl ? qnoEl.textContent.trim().replace(/\.$/, '') : String(idx + 1);
+    const optionTable = container.querySelector('.bix-tbl-options, [id^="tblOption_"]');
+    if (!optionTable) return;
+
+    const options = {};
+    ['A', 'B', 'C', 'D', 'E'].forEach(letter => {
+      // The clickable element: div.bix-td-option with id tdOptionNo_X_NNN
+      const optDiv = optionTable.querySelector(`[id^="tdOptionNo_${letter}_"]`);
+      const valDiv = optionTable.querySelector(`[id^="tdOptionDt_${letter}_"]`);
+      if (optDiv) {
+        options[letter] = {
+          text: valDiv ? getCleanText(valDiv, 200) : '',
+          clickId: optDiv.id,
+          element: optDiv
+        };
+      }
+    });
+
+    if (Object.keys(options).length >= 2) {
+      questions.push({ num: qNum, text: qText, options, container });
+    }
+  });
+
+  // ── Generic MCQ format (radio buttons with labels) ──
+  if (questions.length === 0) {
+    const radioGroups = {};
+    document.querySelectorAll('input[type="radio"]').forEach(radio => {
+      const name = radio.name;
+      if (!name) return;
+      if (!radioGroups[name]) radioGroups[name] = [];
+      const label = document.querySelector(`label[for="${CSS.escape(radio.id)}"]`);
+      const labelText = label ? getCleanText(label, 200) : '';
+      radioGroups[name].push({
+        radio,
+        label: labelText,
+        value: radio.value
+      });
+    });
+
+    Object.entries(radioGroups).forEach(([name, radios], idx) => {
+      if (radios.length < 2) return;
+      // Try to find the question text near this group
+      const firstRadio = radios[0].radio;
+      const questionContainer = firstRadio.closest('form, fieldset, .question, [class*="question"], [class*="quiz"]')
+        || firstRadio.parentElement?.parentElement;
+      const qText = questionContainer ? getCleanText(questionContainer, 500) : `Question ${idx + 1}`;
+
+      const options = {};
+      const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+      radios.forEach((r, i) => {
+        if (i < letters.length) {
+          options[letters[i]] = {
+            text: r.label || r.value,
+            clickId: r.radio.id,
+            element: r.radio
+          };
+        }
+      });
+
+      questions.push({ num: String(idx + 1), text: qText, options });
+    });
+  }
+
+  return questions;
+}
+
+function clickQuizAnswer(questionIdx, letter, questions) {
+  if (!questions || !questions[questionIdx]) {
+    return { ok: false, error: `Question ${questionIdx + 1} not found` };
+  }
+
+  const q = questions[questionIdx];
+  const option = q.options[letter.toUpperCase()];
+  if (!option) {
+    return { ok: false, error: `Option ${letter} not found for question ${q.num}` };
+  }
+
+  // Find the element to click
+  let el = option.element;
+  if (!el && option.clickId) {
+    el = document.getElementById(option.clickId);
+  }
+  if (!el) {
+    return { ok: false, error: `Cannot find element for option ${letter}` };
+  }
+
+  // Scroll into view
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Animate cursor
+  const rect = el.getBoundingClientRect();
+  const cursor = showCursor();
+
+  return new Promise(resolve => {
+    setTimeout(async () => {
+      await animateCursorToElement(el, `Q${q.num}: ${letter}`);
+      cursorClickEffect();
+      highlightElement(el);
+
+      // Click it
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      try { el.click(); } catch {}
+
+      // If it's a radio button, check it
+      if (el instanceof HTMLInputElement && el.type === 'radio') {
+        el.checked = true;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      // For IndiaBix, also try clicking the span inside
+      const innerSpan = el.querySelector('span[id^="lnkOptionLink_"]');
+      if (innerSpan) {
+        try { innerSpan.click(); } catch {}
+      }
+
+      await sleep(300);
+      resolve({ ok: true, question: q.num, selected: letter, optionText: option.text });
+    }, 100);
+  });
+}
+
 // ─── Message Listener ───────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -603,6 +742,60 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } catch (error) {
       sendResponse({ error: error.message });
     }
+    return true;
+  }
+
+  // ── Quiz Scanner ──
+  // Returns structured quiz data so the AI just needs to answer A/B/C/D
+  if (request.action === 'scanQuiz') {
+    try {
+      const questions = scanQuizQuestions();
+      const data = questions.map(q => ({
+        num: q.num,
+        text: q.text,
+        options: Object.fromEntries(
+          Object.entries(q.options).map(([letter, opt]) => [letter, opt.text])
+        )
+      }));
+      sendResponse({ questions: data, count: data.length });
+    } catch (error) {
+      sendResponse({ error: error.message });
+    }
+    return true;
+  }
+
+  // ── Quiz Answer Clicker ──
+  // Clicks answers based on AI-provided answer map: { "1": "A", "2": "C", ... }
+  if (request.action === 'clickQuizAnswers') {
+    const answerMap = request.answers || {};
+    showActingOverlay();
+    showCursor();
+
+    (async () => {
+      const questions = scanQuizQuestions();
+      const results = [];
+
+      for (const [qNumStr, letter] of Object.entries(answerMap)) {
+        const qIdx = questions.findIndex(q => q.num === qNumStr || q.num === String(parseInt(qNumStr)));
+        if (qIdx === -1) {
+          results.push({ question: qNumStr, ok: false, error: 'Question not found on page' });
+          continue;
+        }
+
+        try {
+          const result = await clickQuizAnswer(qIdx, letter, questions);
+          results.push(result);
+          await sleep(400); // Visible pause between clicks
+        } catch (err) {
+          results.push({ question: qNumStr, ok: false, error: err.message });
+        }
+      }
+
+      hideCursor();
+      hideActingOverlay();
+      sendResponse({ results, totalClicked: results.filter(r => r.ok).length });
+    })();
+
     return true;
   }
 
@@ -658,3 +851,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   return false;
 });
+
