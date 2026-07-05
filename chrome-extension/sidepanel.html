@@ -28,6 +28,30 @@
           <svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
 
+        <button class="model-option" data-provider="opencode" data-model="opencode/north-mini-code-free">
+          <div class="model-option-info">
+            <span class="model-title">OpenCode North Mini</span>
+            <span class="model-desc">Free no-key coding/browser agent model</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="opencode" data-model="opencode/deepseek-v4-flash-free">
+          <div class="model-option-info">
+            <span class="model-title">OpenCode DeepSeek Flash</span>
+            <span class="model-desc">Free no-key DeepSeek-style model</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="opencode" data-model="openrouter/qwen/qwen3-coder:free">
+          <div class="model-option-info">
+            <span class="model-title">OpenCode Qwen Coder</span>
+            <span class="model-desc">Free Qwen Coder via OpenCode gateway</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
         <div class="popover-group-label">FREE TIER (API KEY REQUIRED)</div>
         <button class="model-option" data-provider="gemini" data-model="gemini-2.0-flash">
           <div class="model-option-info">
@@ -41,6 +65,46 @@
           <div class="model-option-info">
             <span class="model-title">OpenRouter (Llama 3.3 Free)</span>
             <span class="model-desc">Free open models via OpenRouter key</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="openrouter" data-model="qwen/qwen-2.5-7b-instruct:free">
+          <div class="model-option-info">
+            <span class="model-title">OpenRouter Qwen 2.5 Free</span>
+            <span class="model-desc">Free Qwen model via OpenRouter key</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="openrouter" data-model="deepseek/deepseek-chat-v3-0324:free">
+          <div class="model-option-info">
+            <span class="model-title">OpenRouter DeepSeek V3 Free</span>
+            <span class="model-desc">Free DeepSeek model via OpenRouter key</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="openrouter" data-model="qwen/qwen3-coder:free">
+          <div class="model-option-info">
+            <span class="model-title">OpenRouter Qwen3 Coder Free</span>
+            <span class="model-desc">Free coder model via OpenRouter key</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="openrouter" data-model="mistralai/mistral-7b-instruct:free">
+          <div class="model-option-info">
+            <span class="model-title">OpenRouter Mistral 7B Free</span>
+            <span class="model-desc">Reliable free instruct model via OpenRouter key</span>
+          </div>
+          <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+
+        <button class="model-option" data-provider="openrouter" data-model="google/gemma-2-9b-it:free">
+          <div class="model-option-info">
+            <span class="model-title">OpenRouter Gemma 2 9B Free</span>
+            <span class="model-desc">Free Google open model via OpenRouter key</span>
           </div>
           <svg class="check-icon hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
@@ -83,6 +147,7 @@
         Provider
         <select id="provider">
           <option value="pollinations">Pollinations AI (free, no key)</option>
+          <option value="opencode">OpenCode AI (free, no key)</option>
           <option value="gemini">Google Gemini (free tier key)</option>
           <option value="openrouter">OpenRouter (free/paid)</option>
           <option value="ollama">Ollama (local)</option>
@@ -94,7 +159,23 @@
       </label>
       <label>
         Model Name
-        <input id="model" type="text" placeholder="auto">
+        <input id="model" type="text" placeholder="auto" list="modelPresets">
+        <datalist id="modelPresets">
+          <option value="openai">
+          <option value="opencode/north-mini-code-free">
+          <option value="opencode/deepseek-v4-flash-free">
+          <option value="opencode/nemotron-3-ultra-free">
+          <option value="opencode/mimo-v2.5-free">
+          <option value="openrouter/qwen/qwen3-coder:free">
+          <option value="meta-llama/llama-3.3-8b-instruct:free">
+          <option value="qwen/qwen-2.5-7b-instruct:free">
+          <option value="qwen/qwen3-coder:free">
+          <option value="deepseek/deepseek-chat-v3-0324:free">
+          <option value="mistralai/mistral-7b-instruct:free">
+          <option value="google/gemma-2-9b-it:free">
+          <option value="gemini-2.0-flash">
+          <option value="llama3.1">
+        </datalist>
       </label>
       <label id="endpointRow" class="hidden">
         Endpoint URL

@@ -44,6 +44,7 @@ const els = {
 
 const DEFAULT_MODELS = {
   pollinations: 'openai',
+  opencode: 'opencode/north-mini-code-free',
   gemini: 'gemini-2.0-flash',
   ollama: 'llama3.1',
   lmstudio: 'local-model',
@@ -178,12 +179,46 @@ function setBusy(busy) {
 
 // ─── Provider UI ────────────────────────────────────────────────────────────
 
-function updateProviderUI() {
+async function updateProviderUI() {
   const provider = els.provider.value;
   els.endpointRow.classList.toggle('hidden', !ENDPOINT_PROVIDERS.has(provider));
   els.apiKeyRow.classList.toggle('hidden', !KEYED_PROVIDERS.has(provider));
   els.model.placeholder = DEFAULT_MODELS[provider] || 'auto';
   els.endpoint.placeholder = DEFAULT_ENDPOINTS[provider] || '';
+
+  // Auto-fill API key for the selected provider from storage
+  if (KEYED_PROVIDERS.has(provider)) {
+    const data = await storageGet('local', ['agentApiKeys']);
+    const keys = data.agentApiKeys || {};
+    els.apiKey.value = keys[provider] || '';
+  } else {
+    els.apiKey.value = '';
+  }
+}
+
+function updateSelectedModelUI() {
+  const provider = els.provider.value;
+  const model = els.model.value.trim() || DEFAULT_MODELS[provider] || '';
+  const exact = model
+    ? document.querySelector(`.model-option[data-provider="${CSS.escape(provider)}"][data-model="${CSS.escape(model)}"]`)
+    : null;
+  const fallback = document.querySelector(`.model-option[data-provider="${CSS.escape(provider)}"]`);
+  const currentOption = exact || fallback;
+
+  document.querySelectorAll('.model-option').forEach(b => {
+    b.classList.remove('active');
+    b.querySelector('.check-icon')?.classList.add('hidden');
+  });
+
+  if (currentOption) {
+    currentOption.classList.add('active');
+    currentOption.querySelector('.check-icon')?.classList.remove('hidden');
+    if (els.currentModelName) {
+      els.currentModelName.textContent = currentOption.querySelector('.model-title')?.textContent || provider;
+    }
+  } else if (els.currentModelName) {
+    els.currentModelName.textContent = model || provider.toUpperCase();
+  }
 }
 
 // ─── Settings Load / Save ───────────────────────────────────────────────────
@@ -191,37 +226,23 @@ function updateProviderUI() {
 async function loadSettings() {
   const data = await storageGet('local', ['agentSettings', 'agentApiKeys', 'agentHistory']);
   const s = data.agentSettings || {};
-  const keys = data.agentApiKeys || {};
 
   els.provider.value = s.provider || 'pollinations';
   els.model.value = s.model || '';
   els.endpoint.value = s.endpoint || '';
   els.permissionMode.value = s.permissionMode || 'auto-all';
   els.maxSteps.value = String(s.maxSteps || 10);
-  els.apiKey.value = keys[els.provider.value] || '';
 
   // Update permission label
   const permMap = { 'auto-all': 'Act without asking', 'auto-low': 'Auto-run low risk', 'ask': 'Ask before acting' };
   if (els.permissionLabel) els.permissionLabel.textContent = permMap[els.permissionMode.value] || 'Act without asking';
 
-  // Update header model title
-  const currentOption = document.querySelector(`.model-option[data-provider="${els.provider.value}"]`);
-  if (currentOption && els.currentModelName) {
-    els.currentModelName.textContent = currentOption.querySelector('.model-title')?.textContent || els.provider.value;
-    document.querySelectorAll('.model-option').forEach(b => {
-      b.classList.remove('active');
-      b.querySelector('.check-icon')?.classList.add('hidden');
-    });
-    currentOption.classList.add('active');
-    currentOption.querySelector('.check-icon')?.classList.remove('hidden');
-  } else if (els.currentModelName) {
-    els.currentModelName.textContent = els.provider.value.toUpperCase();
-  }
+  await updateProviderUI();
+  updateSelectedModelUI();
 
   chatMessages = Array.isArray(data.agentHistory)
     ? data.agentHistory.slice(-20).map(m => ({ ...m, content: sanitizeDisplayText(m.content) }))
     : [];
-  updateProviderUI();
 
   if (chatMessages.length) {
     chatMessages.forEach(m => addMessage(m.role === 'user' ? 'user' : 'assistant', m.content));
@@ -501,7 +522,7 @@ async function runAgentLoop(userText) {
   stopped = false;
   currentStep = 0;
 
-  const config = getConfig();
+  const config = await getConfig();
   const maxSteps = config.maxSteps;
 
   // Add user message
@@ -755,7 +776,10 @@ els.provider.addEventListener('change', async () => {
   const data = await storageGet('local', ['agentApiKeys']);
   els.apiKey.value = (data.agentApiKeys || {})[els.provider.value] || '';
   els.model.value = '';
+  updateSelectedModelUI();
 });
+
+els.model.addEventListener('input', updateSelectedModelUI);
 
 // Save settings
 els.saveSettings.addEventListener('click', () => saveSettings());

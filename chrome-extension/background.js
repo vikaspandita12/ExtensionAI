@@ -190,8 +190,31 @@ function normalizeAgentResponse(parsed, rawFallback) {
     : [];
   return {
     message: sanitizeAgentText(parsed.message || rawFallback || 'Done.', 4000),
-    actions
+    actions,
+    answers: normalizeQuizAnswers(parsed.answers)
   };
+}
+
+function normalizeQuizAnswers(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const answers = {};
+  Object.entries(value).forEach(([key, answer]) => {
+    const match = String(answer || '').trim().match(/[A-F]/i);
+    if (match) answers[String(key).trim()] = match[0].toUpperCase();
+  });
+  return answers;
+}
+
+function extractQuizAnswersFromText(text) {
+  const parsed = extractJson(text);
+  if (parsed.answers && Object.keys(parsed.answers).length) return parsed.answers;
+
+  const answers = {};
+  String(text || '').replace(/(?:question|q)?\s*(\d+)\s*[:.)-]\s*([A-F])\b/gi, (_, num, letter) => {
+    answers[String(num)] = String(letter).toUpperCase();
+    return '';
+  });
+  return answers;
 }
 
 // ─── API Error Helpers ──────────────────────────────────────────────────────
@@ -207,6 +230,8 @@ function parseApiError(prefix, status, responseText) {
 
 // Free models that currently work on OpenRouter (updated July 2026)
 const OPENROUTER_FREE_MODELS = [
+  'qwen/qwen3-coder:free',
+  'deepseek/deepseek-chat-v3-0324:free',
   'meta-llama/llama-3.3-8b-instruct:free',
   'qwen/qwen-2.5-7b-instruct:free',
   'mistralai/mistral-7b-instruct:free',
@@ -239,7 +264,11 @@ function normalizeOpenRouterModel(model) {
     'llama-3.3-8b': 'meta-llama/llama-3.3-8b-instruct:free',
     'gemma-2-9b': 'google/gemma-2-9b-it:free',
     'mistral-7b': 'mistralai/mistral-7b-instruct:free',
-    'qwen-2.5-7b': 'qwen/qwen-2.5-7b-instruct:free'
+    'qwen-2.5-7b': 'qwen/qwen-2.5-7b-instruct:free',
+    'qwen3-coder': 'qwen/qwen3-coder:free',
+    'qwen-3-coder': 'qwen/qwen3-coder:free',
+    'deepseek-v3': 'deepseek/deepseek-chat-v3-0324:free',
+    'deepseek-chat': 'deepseek/deepseek-chat-v3-0324:free'
   };
 
   const key = cleaned.toLowerCase();
@@ -267,6 +296,42 @@ function isOpenRouterModelError(error) {
     || text.includes('not a valid model') 
     || text.includes('invalid model')
     || text.includes('(404)');
+}
+
+function extractQuizAnswersFromText(text) {
+  const answers = {};
+  if (!text) return answers;
+
+  // Try parsing JSON first
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const target = parsed.answers || parsed;
+      if (typeof target === 'object' && target !== null) {
+        for (const [k, v] of Object.entries(target)) {
+          if (/^\d+$/.test(k) && typeof v === 'string' && /^[A-E]$/i.test(v.trim())) {
+            answers[k] = v.trim().toUpperCase();
+          }
+        }
+      }
+    }
+  } catch {}
+
+  if (Object.keys(answers).length > 0) return answers;
+
+  // Fallback to pattern matching: "Q1: A", "1. B", "Question 1: C", "1: D"
+  const regex = /(?:Q(?:uestion)?\s*(\d+)|(?:^|\n|\b)(\d+))\s*[:.-]?\s*([A-E])\b/gi;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const num = match[1] || match[2];
+    const letter = match[3];
+    if (num && letter && !answers[num]) {
+      answers[num] = letter.toUpperCase();
+    }
+  }
+
+  return answers;
 }
 
 // ─── Provider: Gemini (Free with API key from aistudio.google.com) ──────────
@@ -373,6 +438,18 @@ async function queryOpenAICompatible(endpoint, model, systemPrompt, userMessage,
   return extractJson(text);
 }
 
+// ─── Provider: OpenCode (Free, no key needed) ───────────────────────────────
+
+async function queryOpenCode(model, systemPrompt, userMessage) {
+  return queryOpenAICompatible(
+    'https://opencode.ai/zen/v1/chat/completions',
+    model || 'opencode/north-mini-code-free',
+    systemPrompt,
+    userMessage,
+    { Authorization: 'Bearer public' }
+  );
+}
+
 // ─── Provider: Ollama (Local, correct endpoint format) ──────────────────────
 
 async function queryOllama(endpoint, model, systemPrompt, userMessage) {
@@ -437,6 +514,7 @@ async function queryAnthropic(apiKey, model, systemPrompt, userMessage) {
 const PROVIDER_CONFIG = {
   gemini:       { needsKey: true,  label: 'Gemini' },
   pollinations: { needsKey: false, label: 'Pollinations' },
+  opencode:     { needsKey: false, label: 'OpenCode' },
   ollama:       { needsKey: false, label: 'Ollama' },
   lmstudio:     { needsKey: false, label: 'LM Studio' },
   openai:       { needsKey: true,  label: 'OpenAI' },
@@ -465,6 +543,10 @@ async function executeAgentQuery(request) {
 
       case 'pollinations':
         result = await queryPollinations(model, systemPrompt, userMessage);
+        break;
+
+      case 'opencode':
+        result = await queryOpenCode(model, systemPrompt, userMessage);
         break;
 
       case 'ollama':
@@ -640,6 +722,9 @@ Do NOT include explanations, just the JSON.`;
           case 'ollama':
             result = await queryOllama(endpoint, model, systemPrompt, userMessage);
             break;
+          case 'opencode':
+            result = await queryOpenCode(model, systemPrompt, userMessage);
+            break;
           case 'lmstudio':
             result = await queryOpenAICompatible(
               endpoint || 'http://localhost:1234/v1/chat/completions',
@@ -670,16 +755,26 @@ Do NOT include explanations, just the JSON.`;
             result = await queryPollinations(model, systemPrompt, userMessage);
         }
 
-        // Extract answers from the result
-        const answers = result.answers || {};
+        // Extract answers from the result. Shared providers use the same JSON
+        // parser as the agent, so preserve the quiz-specific answers field here.
+        const answers = Object.keys(result.answers || {}).length
+          ? result.answers
+          : extractQuizAnswersFromText(result.message || '');
         sendResponse({ answers, providerUsed: provider });
       } catch (error) {
         // Try Pollinations as fallback
         try {
           const fallback = await queryPollinations('openai', quizPrompt, questionsText);
-          sendResponse({ answers: fallback.answers || {}, providerUsed: 'pollinations', warning: `${provider} failed, used Pollinations.` });
+          const answers = Object.keys(fallback.answers || {}).length
+            ? fallback.answers
+            : extractQuizAnswersFromText(fallback.message || '');
+          sendResponse({
+            answers,
+            providerUsed: 'pollinations',
+            warning: sanitizeAgentText(`${provider} failed, used Pollinations.`, 300)
+          });
         } catch (fbErr) {
-          sendResponse({ error: `Quiz query failed: ${error.message}` });
+          sendResponse({ error: sanitizeAgentText(`Quiz query failed: ${error.message}`, 500) });
         }
       }
     })();
@@ -697,4 +792,3 @@ Do NOT include explanations, just the JSON.`;
 
   return false;
 });
-

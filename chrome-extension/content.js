@@ -641,8 +641,11 @@ function scanQuizQuestions() {
       const name = radio.name;
       if (!name) return;
       if (!radioGroups[name]) radioGroups[name] = [];
-      const label = document.querySelector(`label[for="${CSS.escape(radio.id)}"]`);
-      const labelText = label ? getCleanText(label, 200) : '';
+      const label = (radio.id ? document.querySelector(`label[for="${CSS.escape(radio.id)}"]`) : null)
+        || radio.closest('label')
+        || radio.parentElement;
+      let labelText = label ? getVisibleText(label, 200) || getCleanText(label, 200) : '';
+      labelText = labelText.replace(/^\s*[A-Fa-f][\).:-]\s*/, '').trim();
       radioGroups[name].push({
         radio,
         label: labelText,
@@ -654,9 +657,17 @@ function scanQuizQuestions() {
       if (radios.length < 2) return;
       // Try to find the question text near this group
       const firstRadio = radios[0].radio;
-      const questionContainer = firstRadio.closest('form, fieldset, .question, [class*="question"], [class*="quiz"]')
+      const groupInputs = radios.map(r => r.radio);
+      const questionContainer = findQuestionContainerForRadios(groupInputs)
         || firstRadio.parentElement?.parentElement;
-      const qText = questionContainer ? getCleanText(questionContainer, 500) : `Question ${idx + 1}`;
+      let qText = questionContainer ? getVisibleText(questionContainer, 700) || getCleanText(questionContainer, 700) : '';
+      radios.forEach(r => {
+        if (r.label) qText = qText.replace(r.label, ' ');
+      });
+      qText = qText.replace(/\s+/g, ' ').trim();
+      if (!qText || qText.length < 8 || qText.length > 650) {
+        qText = findQuestionTextNear(firstRadio) || `Question ${idx + 1}`;
+      }
 
       const options = {};
       const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -675,6 +686,37 @@ function scanQuizQuestions() {
   }
 
   return questions;
+}
+
+function findQuestionContainerForRadios(radios) {
+  if (!radios.length) return null;
+  let node = radios[0].closest('fieldset, .question, [class*="question"], [data-question], li')
+    || radios[0].parentElement;
+  while (node && node !== document.body) {
+    const contained = radios.filter(r => node.contains(r)).length;
+    const allRadios = node.querySelectorAll('input[type="radio"]').length;
+    const textLen = (getVisibleText(node, 1200) || getCleanText(node, 1200)).length;
+    if (contained === radios.length && allRadios <= radios.length + 1 && textLen < 1000) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function findQuestionTextNear(firstRadio) {
+  const blocks = [];
+  let node = firstRadio;
+  for (let i = 0; i < 8 && node; i++) {
+    let prev = node.previousElementSibling;
+    while (prev) {
+      const text = getVisibleText(prev, 500) || getCleanText(prev, 500);
+      if (text && text.length > 8 && !prev.querySelector('input[type="radio"]')) blocks.unshift(text);
+      if (blocks.join(' ').length > 500) break;
+      prev = prev.previousElementSibling;
+    }
+    if (blocks.length) break;
+    node = node.parentElement;
+  }
+  return blocks.join(' ').replace(/\s+/g, ' ').trim().slice(0, 600);
 }
 
 function clickQuizAnswer(questionIdx, letter, questions) {
@@ -851,4 +893,3 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   return false;
 });
-
