@@ -9,6 +9,7 @@ const $ = id => document.getElementById(id);
 const els = {
   settingsToggle: $('settingsToggle'),
   settings: $('settings'),
+  closeSettings: $('closeSettings'),
   newChat: $('newChat'),
   provider: $('provider'),
   model: $('model'),
@@ -17,11 +18,16 @@ const els = {
   apiKey: $('apiKey'),
   apiKeyRow: $('apiKeyRow'),
   permissionMode: $('permissionMode'),
+  permissionToggleBtn: $('permissionToggleBtn'),
+  permissionLabel: $('permissionLabel'),
   maxSteps: $('maxSteps'),
   saveSettings: $('saveSettings'),
   statusLine: $('statusLine'),
-  pageTitle: $('pageTitle'),
-  pageUrl: $('pageUrl'),
+  modelDropdownBtn: $('modelDropdownBtn'),
+  currentModelName: $('currentModelName'),
+  modelPopover: $('modelPopover'),
+  openFullSettingsBtn: $('openFullSettingsBtn'),
+  quickQuizBtn: $('quickQuizBtn'),
   refreshPage: $('refreshPage'),
   messages: $('messages'),
   approval: $('approval'),
@@ -190,9 +196,27 @@ async function loadSettings() {
   els.provider.value = s.provider || 'pollinations';
   els.model.value = s.model || '';
   els.endpoint.value = s.endpoint || '';
-  els.permissionMode.value = s.permissionMode || 'ask';
+  els.permissionMode.value = s.permissionMode || 'auto-all';
   els.maxSteps.value = String(s.maxSteps || 10);
   els.apiKey.value = keys[els.provider.value] || '';
+
+  // Update permission label
+  const permMap = { 'auto-all': 'Act without asking', 'auto-low': 'Auto-run low risk', 'ask': 'Ask before acting' };
+  if (els.permissionLabel) els.permissionLabel.textContent = permMap[els.permissionMode.value] || 'Act without asking';
+
+  // Update header model title
+  const currentOption = document.querySelector(`.model-option[data-provider="${els.provider.value}"]`);
+  if (currentOption && els.currentModelName) {
+    els.currentModelName.textContent = currentOption.querySelector('.model-title')?.textContent || els.provider.value;
+    document.querySelectorAll('.model-option').forEach(b => {
+      b.classList.remove('active');
+      b.querySelector('.check-icon')?.classList.add('hidden');
+    });
+    currentOption.classList.add('active');
+    currentOption.querySelector('.check-icon')?.classList.remove('hidden');
+  } else if (els.currentModelName) {
+    els.currentModelName.textContent = els.provider.value.toUpperCase();
+  }
 
   chatMessages = Array.isArray(data.agentHistory)
     ? data.agentHistory.slice(-20).map(m => ({ ...m, content: sanitizeDisplayText(m.content) }))
@@ -649,6 +673,80 @@ async function runAgentLoop(userText) {
 // Settings toggle
 els.settingsToggle.addEventListener('click', () => {
   els.settings.classList.toggle('hidden');
+  els.modelPopover.classList.add('hidden');
+});
+
+els.closeSettings?.addEventListener('click', () => {
+  els.settings.classList.add('hidden');
+});
+
+// Model popover toggle
+els.modelDropdownBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  els.modelPopover.classList.toggle('hidden');
+  els.settings.classList.add('hidden');
+});
+
+// Close popover when clicking outside
+document.addEventListener('click', (e) => {
+  if (!els.modelPopover.contains(e.target) && !els.modelDropdownBtn.contains(e.target)) {
+    els.modelPopover.classList.add('hidden');
+  }
+});
+
+// Model option selection in popover
+document.querySelectorAll('.model-option[data-provider]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const provider = btn.getAttribute('data-provider');
+    const model = btn.getAttribute('data-model');
+
+    els.provider.value = provider;
+    els.model.value = model;
+
+    // Update active checkmarks
+    document.querySelectorAll('.model-option').forEach(b => {
+      b.classList.remove('active');
+      b.querySelector('.check-icon')?.classList.add('hidden');
+    });
+    btn.classList.add('active');
+    btn.querySelector('.check-icon')?.classList.remove('hidden');
+
+    const title = btn.querySelector('.model-title')?.textContent || provider;
+    els.currentModelName.textContent = title;
+
+    els.modelPopover.classList.add('hidden');
+    updateProviderUI();
+    await saveSettings(true);
+  });
+});
+
+// Open full settings from popover
+els.openFullSettingsBtn?.addEventListener('click', () => {
+  els.modelPopover.classList.add('hidden');
+  els.settings.classList.remove('hidden');
+});
+
+// Permission mode inline toggle button ("Act without asking" ↔ "Ask before acting")
+const PERMISSION_MODES = [
+  { mode: 'auto-all', label: 'Act without asking' },
+  { mode: 'auto-low', label: 'Auto-run low risk' },
+  { mode: 'ask', label: 'Ask before acting' }
+];
+
+els.permissionToggleBtn?.addEventListener('click', async () => {
+  const currentMode = els.permissionMode.value;
+  const idx = PERMISSION_MODES.findIndex(m => m.mode === currentMode);
+  const next = PERMISSION_MODES[(idx + 1) % PERMISSION_MODES.length];
+
+  els.permissionMode.value = next.mode;
+  els.permissionLabel.textContent = next.label;
+  await saveSettings(true);
+});
+
+// Quick quiz button (+ icon)
+els.quickQuizBtn?.addEventListener('click', () => {
+  els.prompt.value = 'complete quiz';
+  els.composer.dispatchEvent(new Event('submit'));
 });
 
 // Provider change

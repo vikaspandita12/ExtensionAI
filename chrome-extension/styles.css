@@ -16,6 +16,11 @@
 /* ─── Acting Overlay ────────────────────────────────────────────────────── */
 /* Subtle indicator that the agent is performing actions on the page */
 
+.browser-agent-acting {
+  outline: 3px dashed #da7757 !important;
+  outline-offset: -3px !important;
+}
+
 .browser-agent-acting::after {
   content: '';
   position: fixed;
@@ -27,9 +32,9 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    #f97316 30%,
+    #d97757 30%,
     #fb923c 50%,
-    #f97316 70%,
+    #d97757 70%,
     transparent 100%
   );
   background-size: 200% 100%;
